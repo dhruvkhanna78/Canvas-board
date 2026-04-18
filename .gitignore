@@ -1,4 +1,6 @@
-package.json
-.git
-src/
-server/
+node_modules
+.env
+dist
+build
+coverage
+.DS_Store
