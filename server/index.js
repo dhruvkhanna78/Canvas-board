@@ -12,6 +12,10 @@ const io = new Server(server, {
     cors: { origin: "*" },
 });
 
+app.get("/", (req, res) => {
+    res.send("Canvas Board Server is running");
+});
+
 // Room structure memory mein store karne ke liye
 const rooms = {};
 
