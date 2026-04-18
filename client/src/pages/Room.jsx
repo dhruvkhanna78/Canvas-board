@@ -3,6 +3,8 @@ import { useEffect, useRef, useState } from "react";
 import { socket } from "../socket";
 import Toolbar from "../components/Toolbar";
 
+// ... baaki saare imports same
+
 export default function Room() {
     const { roomId } = useParams();
     const canvasRef = useRef(null);
@@ -13,13 +15,15 @@ export default function Room() {
     const drawingRef = useRef(false);
     const currentStrokeRef = useRef(null);
     const imageCache = useRef({});
+    
+    // FIX: previewShape ko Ref banaya taaki jitter na ho
+    const previewShapeRef = useRef(null); 
 
     const [tool, setToolState] = useState("pen");
     const toolRef = useRef("pen");
     const [color, setColorState] = useState("#ffffff");
     const colorRef = useRef("#ffffff");
     const [bgColor, setBgColor] = useState("#0f172a");
-    const [previewShape, setPreviewShape] = useState(null);
 
     const toWorld = (x, y) => ({
         x: (x - cameraRef.current.x) / cameraRef.current.scale,
@@ -41,11 +45,11 @@ export default function Room() {
     };
 
     const renderShape = (ctx, shape) => {
+        if (!shape) return;
         ctx.lineCap = "round";
         ctx.lineJoin = "round";
 
         if (shape.isEraser) {
-            // Eraser logic
             ctx.save();
             ctx.globalCompositeOperation = "destination-out";
             ctx.lineWidth = 20 / cameraRef.current.scale;
@@ -54,7 +58,6 @@ export default function Room() {
             ctx.stroke();
             ctx.restore();
         } else {
-            // Normal Drawing logic
             ctx.strokeStyle = shape.color || "#ffffff";
             ctx.lineWidth = 2 / cameraRef.current.scale;
 
@@ -133,25 +136,27 @@ export default function Room() {
             ctx.setTransform(1, 0, 0, 1, 0, 0);
             ctx.fillStyle = bgColor;
             ctx.fillRect(0, 0, canvas.width, canvas.height);
-
             ctx.translate(cameraRef.current.x, cameraRef.current.y);
             ctx.scale(cameraRef.current.scale, cameraRef.current.scale);
-
+            
             shapesRef.current.forEach(shape => renderShape(ctx, shape));
-
-            if (previewShape) {
+            
+            // Ref se preview draw kar rahe hain
+            if (previewShapeRef.current) {
                 ctx.save();
                 ctx.setLineDash([5, 5]);
-                renderShape(ctx, previewShape);
+                renderShape(ctx, previewShapeRef.current);
                 ctx.restore();
             }
-
             animationFrame = requestAnimationFrame(render);
         };
 
         const handleMouseDown = (e) => {
-            if (isPanningRef.current || e.button !== 0) return;
-            const worldPos = toWorld(e.clientX, e.clientY);
+            const clientX = e.clientX || (e.touches && e.touches[0].clientX);
+            const clientY = e.clientY || (e.touches && e.touches[0].clientY);
+            if (isPanningRef.current || (e.button !== undefined && e.button !== 0)) return;
+            
+            const worldPos = toWorld(clientX, clientY);
             drawingRef.current = true;
             canvas.dataset.startX = worldPos.x;
             canvas.dataset.startY = worldPos.y;
@@ -171,10 +176,14 @@ export default function Room() {
         };
 
         const handleMouseMove = (e) => {
-            const worldPos = toWorld(e.clientX, e.clientY);
+            const clientX = e.clientX || (e.touches && e.touches[0].clientX);
+            const clientY = e.clientY || (e.touches && e.touches[0].clientY);
+            if (!clientX || !clientY) return;
+            const worldPos = toWorld(clientX, clientY);
+
             if (isPanningRef.current) {
-                cameraRef.current.x += e.movementX;
-                cameraRef.current.y += e.movementY;
+                cameraRef.current.x += e.movementX || 0;
+                cameraRef.current.y += e.movementY || 0;
                 return;
             }
             if (!drawingRef.current) return;
@@ -186,65 +195,40 @@ export default function Room() {
                 currentStrokeRef.current.points.push(worldPos);
                 socket.emit("draw", { ...worldPos, roomId });
             } else if (toolRef.current === "rect") {
-                setPreviewShape({ type: "rect", startX, startY, width: worldPos.x - startX, height: worldPos.y - startY, color: colorRef.current });
+                previewShapeRef.current = { type: "rect", startX, startY, width: worldPos.x - startX, height: worldPos.y - startY, color: colorRef.current };
             } else if (toolRef.current === "ellipse") {
                 const rx = (worldPos.x - startX) / 2;
                 const ry = (worldPos.y - startY) / 2;
-                setPreviewShape({ type: "ellipse", centerX: startX + rx, centerY: startY + ry, rx, ry, color: colorRef.current });
+                previewShapeRef.current = { type: "ellipse", centerX: startX + rx, centerY: startY + ry, rx, ry, color: colorRef.current };
             } else if (toolRef.current === "line" || toolRef.current === "arrow") {
-                setPreviewShape({ type: toolRef.current, startX, startY, endX: worldPos.x, endY: worldPos.y, color: colorRef.current });
+                previewShapeRef.current = { type: toolRef.current, startX, startY, endX: worldPos.x, endY: worldPos.y, color: colorRef.current };
             }
+            if (e.touches) e.preventDefault();
         };
 
         const handleMouseUp = () => {
             if (!drawingRef.current) return;
             drawingRef.current = false;
-
-            if (previewShape) {
-                const finalShape = { ...previewShape, userId: socket.id };
+            if (previewShapeRef.current) {
+                const finalShape = { ...previewShapeRef.current, userId: socket.id };
                 shapesRef.current.push(finalShape);
                 socket.emit(`draw-${finalShape.type}`, { ...finalShape, roomId });
-                setPreviewShape(null);
+                previewShapeRef.current = null;
             }
             socket.emit("end-draw", { roomId });
         };
 
-        const handleWheel = (e) => {
-            e.preventDefault();
-            if (e.ctrlKey) {
-                const zoom = Math.exp(-e.deltaY * 0.005);
-                const newScale = cameraRef.current.scale * zoom;
-                if (newScale > 0.05 && newScale < 15) {
-                    cameraRef.current.x = e.clientX - (e.clientX - cameraRef.current.x) * zoom;
-                    cameraRef.current.y = e.clientY - (e.clientY - cameraRef.current.y) * zoom;
-                    cameraRef.current.scale = newScale;
-                }
-            } else {
-                cameraRef.current.x -= e.deltaX;
-                cameraRef.current.y -= e.deltaY;
-            }
-        };
-
+        // ... socket on/off logic same ...
         socket.emit("join-room", roomId);
         socket.on("load-canvas", (data) => shapesRef.current = data);
         socket.on("update-full-canvas", (data) => shapesRef.current = data);
-        
-        // FIX: start-draw mein data.isEraser flag ko handle kar rahe hain
         socket.on("start-draw", (data) => {
-            shapesRef.current.push({ 
-                type: "stroke", 
-                points: [{ x: data.x, y: data.y }], 
-                color: data.color, 
-                userId: data.userId, 
-                isEraser: data.isEraser 
-            });
+            shapesRef.current.push({ type: "stroke", points: [{ x: data.x, y: data.y }], color: data.color, userId: data.userId, isEraser: data.isEraser });
         });
-
         socket.on("draw", (data) => {
             const last = shapesRef.current[shapesRef.current.length - 1];
             if (last?.type === "stroke") last.points.push({ x: data.x, y: data.y });
         });
-
         const genericDraw = (data) => shapesRef.current.push(data);
         socket.on("draw-rect", genericDraw);
         socket.on("draw-ellipse", genericDraw);
@@ -255,12 +239,9 @@ export default function Room() {
         canvas.addEventListener("mousedown", handleMouseDown);
         window.addEventListener("mousemove", handleMouseMove);
         window.addEventListener("mouseup", handleMouseUp);
-        canvas.addEventListener("wheel", handleWheel, { passive: false });
-
-        const keyD = (e) => { if (e.code === "Space") isPanningRef.current = true; };
-        const keyU = (e) => { if (e.code === "Space") isPanningRef.current = false; };
-        window.addEventListener("keydown", keyD);
-        window.addEventListener("keyup", keyU);
+        canvas.addEventListener("touchstart", handleMouseDown, { passive: false });
+        window.addEventListener("touchmove", handleMouseMove, { passive: false });
+        window.addEventListener("touchend", handleMouseUp);
 
         render();
         return () => {
@@ -268,11 +249,11 @@ export default function Room() {
             window.removeEventListener("resize", resize);
             window.removeEventListener("mousemove", handleMouseMove);
             window.removeEventListener("mouseup", handleMouseUp);
-            window.removeEventListener("keydown", keyD);
-            window.removeEventListener("keyup", keyU);
+            window.removeEventListener("touchmove", handleMouseMove);
+            window.removeEventListener("touchend", handleMouseUp);
             socket.off();
         };
-    }, [roomId, bgColor, previewShape]);
+    }, [roomId, bgColor]); 
 
     return (
         <div className="w-screen h-screen relative overflow-hidden" style={{ backgroundColor: bgColor }}>
@@ -283,7 +264,12 @@ export default function Room() {
                 color={color} changeColor={changeColor}
                 toggleBg={toggleBg} bgColor={bgColor}
             />
-            <canvas ref={canvasRef} className="block w-full h-full touch-none cursor-crosshair" />
+            {/* touch-none added to prevent default browser gestures */}
+            <canvas 
+                ref={canvasRef} 
+                className="block w-full h-full touch-none cursor-crosshair" 
+                style={{ touchAction: 'none' }}
+            />
         </div>
     );
 }
