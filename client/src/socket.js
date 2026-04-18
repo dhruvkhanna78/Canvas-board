@@ -1,3 +1,7 @@
 import { io } from "socket.io-client";
 
-export const socket = io("http://localhost:8000");
+const BACKEND_URL = "https://canvas-board-il4x.onrender.com/"
+
+export const socket = io(BACKEND_URL, {
+    transports: ["websocket"],
+});
