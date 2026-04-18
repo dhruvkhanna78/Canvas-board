@@ -35,5 +35,5 @@ A high-performance, real-time collaborative whiteboard. Features include free-ha
 
 1. **Clone the repository**
    ```bash
-   git clone <your-repo-link>
-   cd collaborative-whiteboard
+   git clone https://github.com/dhruvkhanna78/Canvas-board
+   cd Canvas-board
