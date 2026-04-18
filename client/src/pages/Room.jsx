@@ -15,9 +15,9 @@ export default function Room() {
     const drawingRef = useRef(false);
     const currentStrokeRef = useRef(null);
     const imageCache = useRef({});
-    
+
     // FIX: previewShape ko Ref banaya taaki jitter na ho
-    const previewShapeRef = useRef(null); 
+    const previewShapeRef = useRef(null);
 
     const [tool, setToolState] = useState("pen");
     const toolRef = useRef("pen");
@@ -138,9 +138,9 @@ export default function Room() {
             ctx.fillRect(0, 0, canvas.width, canvas.height);
             ctx.translate(cameraRef.current.x, cameraRef.current.y);
             ctx.scale(cameraRef.current.scale, cameraRef.current.scale);
-            
+
             shapesRef.current.forEach(shape => renderShape(ctx, shape));
-            
+
             // Ref se preview draw kar rahe hain
             if (previewShapeRef.current) {
                 ctx.save();
@@ -155,7 +155,7 @@ export default function Room() {
             const clientX = e.clientX || (e.touches && e.touches[0].clientX);
             const clientY = e.clientY || (e.touches && e.touches[0].clientY);
             if (isPanningRef.current || (e.button !== undefined && e.button !== 0)) return;
-            
+
             const worldPos = toWorld(clientX, clientY);
             drawingRef.current = true;
             canvas.dataset.startX = worldPos.x;
@@ -218,6 +218,22 @@ export default function Room() {
             socket.emit("end-draw", { roomId });
         };
 
+        const handleWheel = (e) => {
+            e.preventDefault();
+            if (e.ctrlKey) {
+                const zoom = Math.exp(-e.deltaY * 0.005);
+                const newScale = cameraRef.current.scale * zoom;
+                if (newScale > 0.05 && newScale < 15) {
+                    cameraRef.current.x = e.clientX - (e.clientX - cameraRef.current.x) * zoom;
+                    cameraRef.current.y = e.clientY - (e.clientY - cameraRef.current.y) * zoom;
+                    cameraRef.current.scale = newScale;
+                }
+            } else {
+                cameraRef.current.x -= e.deltaX;
+                cameraRef.current.y -= e.deltaY;
+            }
+        };
+
         // ... socket on/off logic same ...
         socket.emit("join-room", roomId);
         socket.on("load-canvas", (data) => shapesRef.current = data);
@@ -242,6 +258,12 @@ export default function Room() {
         canvas.addEventListener("touchstart", handleMouseDown, { passive: false });
         window.addEventListener("touchmove", handleMouseMove, { passive: false });
         window.addEventListener("touchend", handleMouseUp);
+        canvas.addEventListener("wheel", handleWheel, { passive: false });
+
+        const keyD = (e) => { if (e.code === "Space") isPanningRef.current = true; };
+        const keyU = (e) => { if (e.code === "Space") isPanningRef.current = false; };
+        window.addEventListener("keydown", keyD);
+        window.addEventListener("keyup", keyU);
 
         render();
         return () => {
@@ -251,9 +273,11 @@ export default function Room() {
             window.removeEventListener("mouseup", handleMouseUp);
             window.removeEventListener("touchmove", handleMouseMove);
             window.removeEventListener("touchend", handleMouseUp);
+            window.removeEventListener("keydown", keyD);
+            window.removeEventListener("keyup", keyU);
             socket.off();
         };
-    }, [roomId, bgColor]); 
+    }, [roomId, bgColor]);
 
     return (
         <div className="w-screen h-screen relative overflow-hidden" style={{ backgroundColor: bgColor }}>
@@ -265,9 +289,9 @@ export default function Room() {
                 toggleBg={toggleBg} bgColor={bgColor}
             />
             {/* touch-none added to prevent default browser gestures */}
-            <canvas 
-                ref={canvasRef} 
-                className="block w-full h-full touch-none cursor-crosshair" 
+            <canvas
+                ref={canvasRef}
+                className="block w-full h-full touch-none cursor-crosshair"
                 style={{ touchAction: 'none' }}
             />
         </div>
